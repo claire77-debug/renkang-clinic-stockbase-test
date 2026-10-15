@@ -317,7 +317,7 @@ async function seedCloud(){
  try{
   await stockReload();
   const byName=new Map(HERBS.map(h=>[h.name.trim(),h]));
-  const incoming=CAT.filter(h=>!byName.has(h.name.trim())).map((h,i)=>({id:'compound-'+h.sku,name:h.name,sku:h.sku,qty:0}));
+  const incoming=CAT.filter(h=>!byName.has(h.name.trim())).map((h,i)=>({id:'compound-'+h.sku,name:h.name,sku:h.sku,qty:400}));
   for(let i=0;i<incoming.length;i+=100)await cloudRequest('/rest/v1/herbs',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates'},body:JSON.stringify(incoming.slice(i,i+100))});
   await stockReload();
   const lookup=new Map(HERBS.map(h=>[h.name.trim(),h]));
@@ -331,7 +331,21 @@ async function seedCloud(){
   await stockReload();stockDashboard();alert('已同步复方目录（共 '+CAT.length+' 种）和 '+quotes.length+' 条有效供应商报价。同名复方合并展示最低价格；已有库存未重置。');
  }catch(e){alert('复方同步失败：'+e.message)}finally{if(button){button.disabled=false;button.textContent='同步全部复方及最低报价'}}
 }
-function stockDashboard(){go('list');let root=wrapModal('🌿 StockBase 云端库存',`<div class="acts"><button id="seedStock">同步全部复方及最低报价</button><button id="migrateLocal" disabled title="需要安全迁移方案，暂不开放">旧库存迁移（待核对）</button><input id="stockFile" type="file" accept=".json" hidden></div><label>药粉搜索<input id="herbSearch" type="search" placeholder="输入名称或编号"></label><div id="herbRows"></div><h2>每月药粉用量</h2><label>选择月份<input type="month" id="usageMonth" value="${today().slice(0,7)}"></label><div id="monthlyRows"></div>`);root.querySelector('#seedStock').onclick=seedCloud;root.querySelector('#migrateLocal').onclick=()=>root.querySelector('#stockFile').click();root.querySelector('#stockFile').onchange=async e=>{const f=e.target.files[0];if(f)await migrateStockFile(f)};root.querySelector('#herbSearch').oninput=renderStock;root.querySelector('#usageMonth').onchange=renderStock;renderStock()}
+async function setAllCompoundStock400(){
+ await stockReload();
+ const names=new Set(CAT.map(h=>h.name.trim()));
+ const selected=HERBS.filter(h=>names.has(h.name.trim()));
+ if(!selected.length)return alert('尚未有复方药粉，请先点击「同步全部复方及最低报价」。');
+ if(!confirm('确定将全部 '+selected.length+' 种复方的库存统一设置为 400g（2瓶）？这会覆盖原有库存数量，无法自动撤销；不影响病历和报价。'))return;
+ const btn=$el('setAll400');if(btn){btn.disabled=true;btn.textContent='正在设置库存…'}
+ let done=0;
+ try{
+  for(const h of selected){await rpc('adjust_herb',{p_herb_id:h.id,p_new_qty:400,p_unit_cost:h.unit_cost,p_name:h.name,p_sku:h.sku});done++}
+  await stockReload();stockDashboard();alert('成功！已将 '+done+' 种复方库存设为 400g（2瓶）。');
+ }catch(e){await stockReload();stockDashboard();alert('更新中断，已完成 '+done+'/'+selected.length+' 种。请检查库存后重试。错误：'+e.message)}
+ finally{if(btn){btn.disabled=false;btn.textContent='全部复方设为 400g（2瓶）'}}
+}
+function stockDashboard(){go('list');let root=wrapModal('🌿 StockBase 云端库存',`<div class="acts"><button id="seedStock">同步全部复方及最低报价</button><button id="setAll400">全部复方设为 400g（2瓶）</button><button id="migrateLocal" disabled title="需要安全迁移方案，暂不开放">旧库存迁移（待核对）</button><input id="stockFile" type="file" accept=".json" hidden></div><label>药粉搜索<input id="herbSearch" type="search" placeholder="输入名称或编号"></label><div id="herbRows"></div><h2>每月药粉用量</h2><label>选择月份<input type="month" id="usageMonth" value="${today().slice(0,7)}"></label><div id="monthlyRows"></div>`);root.querySelector('#seedStock').onclick=seedCloud;root.querySelector('#setAll400').onclick=setAllCompoundStock400;root.querySelector('#migrateLocal').onclick=()=>root.querySelector('#stockFile').click();root.querySelector('#stockFile').onchange=async e=>{const f=e.target.files[0];if(f)await migrateStockFile(f)};root.querySelector('#herbSearch').oninput=renderStock;root.querySelector('#usageMonth').onchange=renderStock;renderStock()}
 function packText(g){const n=Math.round(Number(g)*100),p=Math.floor(n/20000),r=roundG((n%20000)/100);return p?p+'罐'+(r?' '+r+'g':''):r+'g'}
 function renderStock(){const root=$el('cloudModal');if(!root)return;const q=$el('herbSearch')?.value.trim().toLowerCase()||'';$el('herbRows').innerHTML=HERBS.filter(h=>!q||(h.name+' '+h.sku).toLowerCase().includes(q)).slice(0,160).map(h=>`<div class="row" style="display:flex;gap:8px"><span><b>${esc(h.name)}</b><small>${esc(h.sku)} · ${h.qty}g ${Number(h.qty)<=400?'⚠ 低库存':''} · ${(()=>{const qs=QUOTES.filter(q=>q.herb_id===h.id);if(!qs.length)return '暂无报价';const best=qs.map(q=>({supplier:q.supplier,price:roundG(q.price*200/q.pack_grams)})).sort((a,b)=>a.price-b.price)[0];return '最低报价 '+esc(best.supplier)+' RM'+best.price+'/200g'})()}</small></span><button type="button" data-editstock="${esc(h.id)}">盘点</button></div>`).join('')||'<p>暂无药粉，请先导入目录</p>';const month=$el('usageMonth').value;const used=new Map();for(const r of RX.filter(r=>!r.cancelled_at&&r.created_at.slice(0,7)===month))for(const it of r.items){used.set(it.id,roundG((used.get(it.id)||0)+Number(it.g)))}$el('monthlyRows').innerHTML=[...used].sort((a,b)=>b[1]-a[1]).map(([id,g])=>`<div class="row"><b>${esc(HERBS.find(h=>h.id===id)?.name||id)}</b><b>${packText(g)}</b></div>`).join('')||'<p class="mut">这个月还没有开药记录</p>';root.querySelectorAll('[data-editstock]').forEach(b=>b.onclick=()=>editStock(b.dataset.editstock))}
 async function editStock(id){const h=HERBS.find(x=>x.id===id);const val=prompt(h.name+'：请输入盘点后的实际库存 (g)',h.qty);if(val===null)return;const qty=Number(val);if(!Number.isFinite(qty)||qty<0||roundG(qty)!==qty)return alert('请输入有效库存 (g)');try{await rpc('adjust_herb',{p_herb_id:id,p_new_qty:qty,p_unit_cost:h.unit_cost,p_name:h.name,p_sku:h.sku});await stockReload();renderStock()}catch(e){alert('更新失败：'+e.message)}}

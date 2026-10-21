@@ -84,9 +84,12 @@ function rxDetailsForVisit(z){
    const id=String(it.id??it.herb_id??'');
    const h=HERBS.find(h=>h.id===id);
    const name=h?.name||it.name||id||'未知复方';
-   return esc(name)+'　'+esc(it.g??it.grams??'')+'g';
+   return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>'+esc(name)+'</span><strong style="white-space:nowrap;font-weight:500">'+esc(it.g??it.grams??'')+'g</strong></div>';
   });
-  return '<dt>复方开药</dt><dd>'+esc(r.name||'复方')+(lines.length?'\\n'+lines.join('\\n'):'')+'\\n总计：'+esc(r.total_g??'')+'g</dd>';
+  return '<dt>复方开药</dt><dd><div style="max-width:360px">'+
+   (r.name&&r.name!=='复方'?'<div style="margin-bottom:5px;color:var(--mut)">'+esc(r.name)+'</div>':'')+
+   lines.join('')+
+   '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;font-weight:600">总计：'+esc(r.total_g??'')+'g</div></div></dd>';
  }).join('');
 }
 function rows(){

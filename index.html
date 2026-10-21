@@ -406,10 +406,58 @@ async function setAllCompoundStock400(){
  }catch(e){await stockReload();stockDashboard();alert('更新中断，已完成 '+done+'/'+selected.length+' 种。请检查库存后重试。错误：'+e.message)}
  finally{if(btn){btn.disabled=false;btn.textContent='全部复方设为 400g（2瓶）'}}
 }
-function stockDashboard(){go('list');let root=wrapModal('🌿 StockBase 云端库存',`<div class="acts"><button id="seedStock">同步全部复方及最低报价</button><button id="setAll400">全部复方设为 400g（2瓶）</button><button id="migrateLocal" disabled title="需要安全迁移方案，暂不开放">旧库存迁移（待核对）</button><input id="stockFile" type="file" accept=".json" hidden></div><label>药粉搜索<input id="herbSearch" type="search" placeholder="输入名称或编号"></label><div id="herbRows"></div><h2>每月药粉用量</h2><label>选择月份<input type="month" id="usageMonth" value="${today().slice(0,7)}"></label><div id="monthlyRows"></div>`);root.querySelector('#seedStock').onclick=seedCloud;root.querySelector('#setAll400').onclick=setAllCompoundStock400;root.querySelector('#migrateLocal').onclick=()=>root.querySelector('#stockFile').click();root.querySelector('#stockFile').onchange=async e=>{const f=e.target.files[0];if(f)await migrateStockFile(f)};root.querySelector('#herbSearch').oninput=renderStock;root.querySelector('#usageMonth').onchange=renderStock;renderStock()}
+const RESTOCK_LOG_KEY='renkangRestockUndo_v1';
+function restockLogs(){try{return JSON.parse(localStorage.getItem(RESTOCK_LOG_KEY)||'[]')}catch{return []}}
+function saveRestockLogs(x){localStorage.setItem(RESTOCK_LOG_KEY,JSON.stringify(x.slice(0,30)))}
+function stockDashboard(){
+ go('list');
+ const root=wrapModal('🌿 StockBase 云端库存',`<div class="acts"><button id="seedStock">同步全部复方及最低报价</button><button id="setAll400">全部复方设为 400g（2瓶）</button></div>
+ <h2 style="font-size:18px;margin:16px 0 8px">📋 自动补货清单（剩余 ≤2瓶 / 400g）</h2><div id="restockList"></div><div id="undoRestocks"></div>
+ <label>药粉搜索<input id="herbSearch" type="search" placeholder="输入名称或编号"></label><div id="herbRows"></div>
+ <h2>每月药粉用量</h2><label>选择月份<input type="month" id="usageMonth" value="${today().slice(0,7)}"></label><div id="monthlyRows"></div>`);
+ root.querySelector('#seedStock').onclick=seedCloud;root.querySelector('#setAll400').onclick=setAllCompoundStock400;
+ root.querySelector('#herbSearch').oninput=renderStock;root.querySelector('#usageMonth').onchange=renderStock;renderStock();
+}
 function packText(g){const n=Math.round(Number(g)*100),p=Math.floor(n/20000),r=roundG((n%20000)/100);return p?p+'罐'+(r?' '+r+'g':''):r+'g'}
-function renderStock(){const root=$el('cloudModal');if(!root)return;const q=$el('herbSearch')?.value.trim().toLowerCase()||'';$el('herbRows').innerHTML=HERBS.filter(h=>!q||(h.name+' '+h.sku).toLowerCase().includes(q)).slice(0,160).map(h=>`<div class="row" style="display:flex;gap:8px"><span><b>${esc(h.name)}</b><small>${esc(h.sku)} · ${h.qty}g ${Number(h.qty)<=400?'⚠ 低库存':''} · ${(()=>{const qs=QUOTES.filter(q=>q.herb_id===h.id);if(!qs.length)return '暂无报价';const best=qs.map(q=>({supplier:q.supplier,price:roundG(q.price*200/q.pack_grams)})).sort((a,b)=>a.price-b.price)[0];return '最低报价 '+esc(best.supplier)+' RM'+best.price+'/200g'})()}</small></span><button type="button" data-editstock="${esc(h.id)}">盘点</button></div>`).join('')||'<p>暂无药粉，请先导入目录</p>';const month=$el('usageMonth').value;const used=new Map();for(const r of RX.filter(r=>!r.cancelled_at&&r.created_at.slice(0,7)===month))for(const it of r.items){used.set(it.id,roundG((used.get(it.id)||0)+Number(it.g)))}$el('monthlyRows').innerHTML=[...used].sort((a,b)=>b[1]-a[1]).map(([id,g])=>`<div class="row"><b>${esc(HERBS.find(h=>h.id===id)?.name||id)}</b><b>${packText(g)}</b></div>`).join('')||'<p class="mut">这个月还没有开药记录</p>';root.querySelectorAll('[data-editstock]').forEach(b=>b.onclick=()=>editStock(b.dataset.editstock))}
-async function editStock(id){const h=HERBS.find(x=>x.id===id);const val=prompt(h.name+'：请输入盘点后的实际库存 (g)',h.qty);if(val===null)return;const qty=Number(val);if(!Number.isFinite(qty)||qty<0||roundG(qty)!==qty)return alert('请输入有效库存 (g)');try{await rpc('adjust_herb',{p_herb_id:id,p_new_qty:qty,p_unit_cost:h.unit_cost,p_name:h.name,p_sku:h.sku});await stockReload();renderStock()}catch(e){alert('更新失败：'+e.message)}}
+function quoteDetails(id){const qs=QUOTES.filter(q=>q.herb_id===id).map(q=>({supplier:q.supplier,price:roundG(q.price*200/q.pack_grams)})).filter(q=>Number.isFinite(q.price)).sort((a,b)=>a.price-b.price);return qs.length?qs.map((q,i)=>'<div>'+esc(q.supplier)+'：RM'+esc(q.price)+'/200g'+(i===0?'（最低价）':'')+'</div>').join(''):'暂无供应商报价'}
+function renderStock(){
+ const root=$el('cloudModal');if(!root)return;
+ const q=$el('herbSearch')?.value.trim().toLowerCase()||'';
+ const low=HERBS.filter(h=>Number(h.qty)<=400).sort((a,b)=>Number(a.qty)-Number(b.qty));
+ $el('restockList').innerHTML=low.length?'<p class="mut">共 '+low.length+' 种需要检查或补货；目标库存可按实际情况填写。</p>'+low.map(h=>`<div class="row" style="display:flex;gap:8px;align-items:center"><span><b>${esc(h.name)}</b><small>剩余 ${esc(h.qty)}g（${roundG(h.qty/200)} 瓶）</small></span><button type="button" data-editstock="${esc(h.id)}">补货</button></div>`).join(''):'<p class="mut">目前没有低库存复方。</p>';
+ $el('herbRows').innerHTML=HERBS.filter(h=>!q||(h.name+' '+h.sku).toLowerCase().includes(q)).slice(0,160).map(h=>`<div class="row" style="display:flex;gap:8px;align-items:center"><span><b>${esc(h.name)}</b><small>${esc(h.sku)} · ${esc(h.qty)}g ${Number(h.qty)<=400?'⚠ 低库存':''}</small></span><div><button type="button" data-details="${esc(h.id)}">详情</button><button type="button" data-editstock="${esc(h.id)}">补货 / 盘点</button></div></div>`).join('')||'<p>暂无药粉，请先导入复方目录</p>';
+ const month=$el('usageMonth').value,used=new Map();
+ for(const r of RX.filter(r=>!r.cancelled_at&&r.created_at?.slice(0,7)===month))for(const it of r.items||[]){const id=String(it.id??it.herb_id);used.set(id,roundG((used.get(id)||0)+Number(it.g)))}
+ $el('monthlyRows').innerHTML=[...used].sort((a,b)=>b[1]-a[1]).map(([id,g])=>`<div class="row"><b>${esc(HERBS.find(h=>h.id===id)?.name||id)}</b><b>${packText(g)}</b></div>`).join('')||'<p class="mut">这个月还没有开药记录</p>';
+ const recent=restockLogs();
+ $el('undoRestocks').innerHTML=recent.length?'<details style="margin:10px 0"><summary>近期补货／盘点记录（本设备）</summary>'+recent.map((x,i)=>'<div class="row" style="gap:8px"><span>'+esc(x.name)+'　'+x.before+'g → '+x.after+'g</span><button type="button" data-undo="'+i+'">撤销</button></div>').join('')+'</details>':'';
+ root.querySelectorAll('[data-editstock]').forEach(b=>b.onclick=()=>editStock(b.dataset.editstock));
+ root.querySelectorAll('[data-details]').forEach(b=>b.onclick=()=>{const h=HERBS.find(x=>x.id===b.dataset.details);if(h)alert(h.name+'\\n'+quoteDetails(h.id).replace(/<[^>]*>/g,'\\n'))});
+ root.querySelectorAll('[data-undo]').forEach(b=>b.onclick=()=>undoRestock(Number(b.dataset.undo)));
+}
+async function undoRestock(index){
+ const rec=restockLogs()[index];if(!rec)return;
+ await stockReload();const h=HERBS.find(h=>h.id===rec.id);
+ if(!h)return alert('这味药已经不在库存中');
+ if(roundG(Number(h.qty))!==roundG(Number(rec.after)))return alert('库存已被其他开药或盘点操作改变，不能直接撤销。请先核对库存。');
+ if(!confirm('确定撤销 '+rec.name+' 的这次补货／盘点？库存恢复为 '+rec.before+'g。'))return;
+ try{
+  await rpc('adjust_herb',{p_herb_id:h.id,p_new_qty:rec.before,p_unit_cost:h.unit_cost,p_name:h.name,p_sku:h.sku});
+  saveRestockLogs(restockLogs().filter((_,i)=>i!==index));await stockReload();renderStock();toast('已撤销并恢复库存')
+ }catch(e){alert('撤销失败：'+e.message)}
+}
+async function editStock(id){
+ const h=HERBS.find(x=>x.id===id);if(!h)return;
+ const val=prompt(h.name+'：当前 '+h.qty+'g。请输入补货／盘点后的实际总库存 (g)',h.qty);
+ if(val===null)return;const qty=Number(val);
+ if(!Number.isFinite(qty)||qty<0||roundG(qty)!==qty)return alert('请输入有效库存 (g)');
+ if(qty===Number(h.qty))return;
+ if(!confirm('确定把 '+h.name+' 从 '+h.qty+'g 改为 '+qty+'g？'))return;
+ try{
+  await rpc('adjust_herb',{p_herb_id:id,p_new_qty:qty,p_unit_cost:h.unit_cost,p_name:h.name,p_sku:h.sku});
+  saveRestockLogs([{id,name:h.name,before:Number(h.qty),after:qty},...restockLogs()]);await stockReload();renderStock();toast('已更新库存；本设备可在近期记录中撤销')
+ }catch(e){alert('更新失败：'+e.message)}
+}
 async function migrateStockFile(file){try{if(HERBS.length)throw Error('请在全新空数据库中迁移 StockBase，以防覆盖库存');const raw=JSON.parse(await file.text()),d=raw.data||raw;if(!Array.isArray(d.herbs))throw Error('这不是 StockBase 备份');if(!confirm('将旧药粉、库存和报价导入空的云端数据库？历史开药需另行核对。'))return;const hs=d.herbs.map(h=>({id:String(h.id),name:h.name,sku:h.sku||'',qty:Math.max(0,Number(h.qty)||0),unit_cost:h.unitCost??null}));for(let i=0;i<hs.length;i+=100)await cloudRequest('/rest/v1/herbs',{method:'POST',body:JSON.stringify(hs.slice(i,i+100))});const quotes=(d.quotes||[]).filter(q=>hs.some(h=>h.id===q.herbId)).map(q=>({id:String(q.id),herb_id:q.herbId,supplier:d.suppliers?.find(s=>s.id===q.supplierId)?.name||q.supplierId,price:Number(q.price)||0,pack_grams:Number(q.packGrams)||200,sku:q.sku||''}));for(let i=0;i<quotes.length;i+=100)await cloudRequest('/rest/v1/herb_quotes',{method:'POST',body:JSON.stringify(quotes.slice(i,i+100))});await stockReload();stockDashboard();alert('库存和报价已导入。注意：旧版历史开药记录尚未迁移到月用量统计，不要重复补扣。')}catch(e){alert('库存迁移失败：'+e.message)}}
 // Preserve legacy Clinic JSON import/export; import writes into cloud and does not delete existing records.
 const originalImportData=importData;

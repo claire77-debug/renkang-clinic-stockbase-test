@@ -322,8 +322,52 @@ async function cloudDeletePatientOrVisitGuard(e){const a=e.target.closest('[data
 A.addEventListener('click',cloudDeletePatientOrVisitGuard,true);
 A.addEventListener('click',async e=>{const r=e.target.closest('[data-cloudrx]'),c=e.target.closest('[data-cancelrx]');if(r){await openRx(r.dataset.cloudrx)}if(c){if(!confirm('确定撤销发药，并把所有药粉加回库存？'))return;try{await rpc('cancel_mix',{p_id:c.dataset.cancelrx});await stockReload();draw();toast('已撤销发药并恢复库存')}catch(x){alert(x.message)}}});
 function wrapModal(title,body){document.getElementById('cloudModal')?.remove();const div=document.createElement('div');div.id='cloudModal';div.style.cssText='position:fixed;inset:0;z-index:30;background:#0009;overflow:auto;padding:12px;';div.innerHTML=`<div class="card" style="max-width:690px;margin:10px auto;max-height:calc(100vh - 25px);overflow:auto"><div class="top"><h2>${esc(title)}</h2><button id="closeCloud">关闭</button></div>${body}</div>`;document.body.append(div);div.querySelector('#closeCloud').onclick=()=>div.remove();return div}
-async function openRx(visitId){const v=V.find(x=>x.id===visitId);if(!v)return alert('找不到病例');ACTIVE_VISIT=visitId;STOCK_LINES=[{id:'',g:''}];const p=P.find(x=>x.id===v.pid);const modal=wrapModal('🌿 '+p.name+' · 复方开药',`<p class="mut">复方克数不设固定总量范围。只有确认发药才会扣库存，且不能超过实际库存。</p><label>配方备注<input id="rxName" placeholder="复方"></label><div id="mixLines"></div><button id="addMix">＋ 添加药粉</button><div class="card" id="mixTotal"></div><button class="p" id="confirmMix" style="width:100%">确认发药并扣库存</button>`);modal.querySelector('#addMix').onclick=()=>{STOCK_LINES.push({id:'',g:''});renderMix()};modal.querySelector('#confirmMix').onclick=saveMix;renderMix()}
-function renderMix(){const host=$el('mixLines');if(!host)return;host.innerHTML=STOCK_LINES.map((r,i)=>`<div class="card" style="padding:10px"><label>药粉 ${i+1}<select data-h="${i}"><option value="">请选择药粉</option>${HERBS.map(h=>`<option value="${esc(h.id)}" ${h.id===r.id?'selected':''}>${esc(h.name)} (${h.qty}g)</option>`).join('')}</select></label><label>克数 (g)<input type="number" min="0.01" step="0.01" data-g="${i}" value="${esc(r.g)}"></label><button data-remove="${i}">移除</button></div>`).join('');host.querySelectorAll('[data-h]').forEach(x=>x.onchange=()=>{STOCK_LINES[+x.dataset.h].id=x.value;updateMix()});host.querySelectorAll('[data-g]').forEach(x=>x.oninput=()=>{STOCK_LINES[+x.dataset.g].g=x.value;updateMix()});host.querySelectorAll('[data-remove]').forEach(x=>x.onclick=()=>{STOCK_LINES.splice(+x.dataset.remove,1);if(!STOCK_LINES.length)STOCK_LINES.push({id:'',g:''});renderMix()});updateMix()}
+
+function rxPopularIds(){
+ const counts=new Map();
+ for(const r of RX.filter(r=>!r.cancelled_at))for(const it of (Array.isArray(r.items)?r.items:[])){const id=String(it.id??it.herb_id??'');counts.set(id,(counts.get(id)||0)+1)}
+ return counts;
+}
+function pastPrescription(visitId){
+ const current=V.find(v=>v.id===visitId);
+ if(!current)return null;
+ const visits=V.filter(v=>v.pid===current.pid&&v.id!==visitId&&((v.date||'')<(current.date||'')||((v.date||'')===(current.date||'')&&(v.ts||0)<(current.ts||0)))).map(v=>v.id);
+ return RX.filter(r=>visits.includes(r.visit_id)&&!r.cancelled_at).sort((a,b)=>(b.created_at||'').localeCompare(a.created_at||''))[0]||null;
+}
+async function openRx(visitId){
+ const v=V.find(x=>x.id===visitId);if(!v)return alert('找不到病例');
+ ACTIVE_VISIT=visitId;STOCK_LINES=[{id:'',g:''}];const p=P.find(x=>x.id===v.pid);
+ const modal=wrapModal('🌿 '+p.name+' · 复方开药',`
+  <p class="mut">每味复方一行，填写克数；确认发药才扣库存。</p>
+  <div class="acts"><button id="lastRx" type="button">查看／带入上次处方（选填）</button></div>
+  <div id="lastRxPreview"></div>
+  <label>处方备注（选填）<input id="rxName" placeholder="复方"></label>
+  <div id="mixLines"></div><button id="addMix" type="button">＋ 添加复方</button>
+  <div class="card" id="mixTotal"></div><button class="p" id="confirmMix" style="width:100%">确认发药并扣库存</button>`);
+ modal.querySelector('#addMix').onclick=()=>{STOCK_LINES.push({id:'',g:''});renderMix()};
+ modal.querySelector('#confirmMix').onclick=saveMix;
+ modal.querySelector('#lastRx').onclick=()=>{
+  const previous=pastPrescription(visitId),preview=$el('lastRxPreview');
+  if(!previous){preview.innerHTML='<p class="mut">这位病人没有可带入的上次处方。</p>';return}
+  const lines=(previous.items||[]).map(it=>{const herb=HERBS.find(h=>h.id===String(it.id??it.herb_id));return '<div>'+esc(herb?.name||it.name||'未知药粉')+'　'+esc(it.g)+'g</div>'}).join('');
+  preview.innerHTML='<div class="card"><b>上次处方（仅供参考）</b>'+lines+'<button type="button" class="p" id="applyLastRx">带入并编辑</button></div>';
+  $el('applyLastRx').onclick=()=>{STOCK_LINES=(previous.items||[]).map(it=>({id:String(it.id??it.herb_id),g:String(it.g)})).filter(it=>HERBS.some(h=>h.id===it.id));if(!STOCK_LINES.length)STOCK_LINES=[{id:'',g:''}];renderMix();preview.innerHTML='<p class="mut">已带入，可修改或移除，确认发药才扣库存。</p>'};
+ };
+ renderMix();
+}
+function renderMix(){
+ const host=$el('mixLines');if(!host)return;
+ const counts=rxPopularIds(),sorted=[...HERBS].sort((a,b)=>(counts.get(b.id)||0)-(counts.get(a.id)||0)||a.name.localeCompare(b.name,'zh'));
+ const suggestions=sorted.map(h=>'<option value="'+esc(h.name)+'"></option>').join('');
+ host.innerHTML='<datalist id="allCompoundSuggestions">'+suggestions+'</datalist>'+STOCK_LINES.map((r,i)=>{
+  const h=HERBS.find(h=>h.id===r.id);
+  return `<div class="card" style="padding:10px"><div class="row" style="gap:8px;align-items:end;border:0;padding:0;background:none"><label style="flex:2;margin:0">药名<input data-find="${i}" list="allCompoundSuggestions" placeholder="搜索复方名称" value="${esc(h?.name||'')}"></label><label style="flex:1;margin:0">克数 (g)<input type="number" min="0.01" step="0.01" data-g="${i}" value="${esc(r.g)}"></label><button data-remove="${i}" type="button">删除</button></div><div class="mut" id="available-${i}" style="font-size:13px;margin-top:5px">现有库存：${h?esc(h.qty)+'g':'请选择复方'}</div></div>`;
+ }).join('');
+ host.querySelectorAll('[data-find]').forEach(x=>{const apply=()=>{const h=HERBS.find(h=>h.name.trim()===x.value.trim());STOCK_LINES[+x.dataset.find].id=h?.id||'';$el('available-'+x.dataset.find).textContent=h?'现有库存：'+h.qty+'g':'请从药名建议中选择完整名称';updateMix()};x.onchange=apply;x.onblur=apply});
+ host.querySelectorAll('[data-g]').forEach(x=>x.oninput=()=>{STOCK_LINES[+x.dataset.g].g=x.value;updateMix()});
+ host.querySelectorAll('[data-remove]').forEach(x=>x.onclick=()=>{STOCK_LINES.splice(+x.dataset.remove,1);if(!STOCK_LINES.length)STOCK_LINES.push({id:'',g:''});renderMix()});
+ updateMix();
+}
 function mixValid(){let t=0;const ids=new Set();for(const x of STOCK_LINES){const h=HERBS.find(y=>y.id===x.id),g=Number(x.g);if(!h)return {error:'请选择全部药粉'};if(ids.has(x.id))return{error:'同一药粉请合并为一行'};ids.add(x.id);if(!Number.isFinite(g)||g<=0||roundG(g)!==g)return{error:'请输入有效克数（最多两位小数）'};if(g>Number(h.qty))return{error:h.name+' 库存不足'};t=roundG(t+g)}return {total:t}}
 function updateMix(){const x=mixValid();$el('mixTotal').innerHTML=`<b>混合重量：${x.total??roundG(STOCK_LINES.reduce((n,r)=>n+(Number(r.g)||0),0))}g</b><p class="mut">${esc(x.error||'库存充足，可以发药')}</p>`;$el('confirmMix').disabled=!!x.error}
 async function saveMix(){const x=mixValid();if(x.error)return alert(x.error);if(!confirm('确认已为病人配药？此操作立即扣库存。'))return;const v=V.find(z=>z.id===ACTIVE_VISIT);try{await rpc('dispense_mix',{p_id:uid(),p_visit_id:v.id,p_patient_id:v.pid,p_name:$el('rxName').value.trim()||'复方',p_items:STOCK_LINES.map(r=>({id:r.id,g:Number(r.g)}))});await stockReload();$el('cloudModal')?.remove();draw();toast('开药成功，库存已更新',4000)}catch(e){alert('未能发药：'+e.message)}}

@@ -446,7 +446,7 @@ function saveRestockLogs(x){localStorage.setItem(RESTOCK_LOG_KEY,JSON.stringify(
 function stockDashboard(){
  go('list');
  const root=wrapModal('🌿 StockBase 云端库存',`<div class="acts"><button id="seedStock">同步全部复方及最低报价</button><button id="setAll400">全部复方设为 400g（2瓶）</button></div>
- <h2 style="font-size:18px;margin:16px 0 8px">📋 自动补货清单（剩余 ≤2瓶 / 400g）</h2><div id="restockList"></div><div id="undoRestocks"></div>
+ <h2 style="font-size:18px;margin:16px 0 8px">📋 自动补货清单（拼音 A–Z · 剩余 ≤2瓶 / 400g）</h2><div id="restockList"></div><div id="undoRestocks"></div>
  <label>🔎 搜索复方（药名 / 编号）<input id="herbSearch" type="search" placeholder="例如：白虎汤、八珍汤、K006" autocomplete="off"></label><div class="mut" id="herbCount" style="font-size:13px;margin:0 0 8px"></div><div id="herbRows"></div>
  <h2>每月药粉用量</h2><label>选择月份<input type="month" id="usageMonth" value="${today().slice(0,7)}"></label><div id="monthlyRows"></div>`);
  root.querySelector('#seedStock').onclick=seedCloud;root.querySelector('#setAll400').onclick=setAllCompoundStock400;
@@ -457,7 +457,7 @@ function quoteDetails(id){const qs=QUOTES.filter(q=>q.herb_id===id).map(q=>({sup
 function renderStock(){
  const root=$el('cloudModal');if(!root)return;
  const q=$el('herbSearch')?.value.trim().toLowerCase()||'';
- const low=HERBS.filter(h=>Number(h.qty)<=400).sort((a,b)=>Number(a.qty)-Number(b.qty));
+ const low=HERBS.filter(h=>Number(h.qty)<=400).sort((a,b)=>a.name.localeCompare(b.name,'zh-u-co-pinyin')||(a.sku||'').localeCompare(b.sku||''));
  $el('restockList').innerHTML=low.length?'<p class="mut">共 '+low.length+' 种需要检查或补货；目标库存可按实际情况填写。</p>'+low.map(h=>`<div class="row" style="display:flex;gap:8px;align-items:center"><span><b>${esc(h.name)}</b><small>剩余 ${esc(h.qty)}g（${roundG(h.qty/200)} 瓶）</small></span><button type="button" data-editstock="${esc(h.id)}">补货</button></div>`).join(''):'<p class="mut">目前没有低库存复方。</p>';
  const orderedHerbs=HERBS.filter(h=>!q||(h.name+' '+(h.sku||'')).toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'zh-u-co-pinyin')||(a.sku||'').localeCompare(b.sku||''));
  $el('herbCount').textContent='按拼音 A–Z 排序 · 共 '+orderedHerbs.length+' 种复方'+(q?'（搜索结果）':'');

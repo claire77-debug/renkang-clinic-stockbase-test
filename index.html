@@ -80,18 +80,24 @@ function rxDetailsForVisit(z){
  const records=RX.filter(r=>r.visit_id===z.id&&!r.cancelled_at);
  if(!records.length)return '';
  return records.map(r=>{
-  const lines=(Array.isArray(r.items)?r.items:[]).map(it=>{
+  const entries=(Array.isArray(r.items)?r.items:[]).map(it=>{
    const id=String(it.id??it.herb_id??'');
    const h=HERBS.find(h=>h.id===id);
    const name=h?.name||it.name||id||'未知复方';
-   return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>'+esc(name)+'</span><strong style="white-space:nowrap;font-weight:500">'+esc(it.g??it.grams??'')+'g</strong></div>';
+   const g=it.g??it.grams??'';
+   const detail=String(z.formula_details?.[String(r.id)+':'+id]||'').trim();
+   return {name,g,detail};
   });
+  const lines=entries.map(it=>'<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0"><span>'+esc(it.name)+'</span><strong style="white-space:nowrap;font-weight:500">'+esc(it.g)+'g</strong></div>');
+  const details=entries.filter(it=>it.detail).map(it=>'<div style="padding:2px 0">'+esc(it.name)+'（'+esc(it.detail)+'）</div>').join('');
   return '<dt>复方开药</dt><dd><div style="max-width:360px">'+
    (r.name&&r.name!=='复方'?'<div style="margin-bottom:5px;color:var(--mut)">'+esc(r.name)+'</div>':'')+
    lines.join('')+
-   '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;font-weight:600">总计：'+esc(r.total_g??'')+'g</div></div></dd>';
+   '<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:6px;font-weight:600">总计：'+esc(r.total_g??'')+'g</div></div></dd>'+
+   (details?'<dt>复方明细</dt><dd>'+details+'</dd>':'');
  }).join('');
 }
+
 function rows(){
  if(!P.length)return '<p class="mut">还没有病人。点右上角「新增病人」开始。</p>';
  const q=S.q.trim().toLowerCase(),ps=P.filter(p=>!q||hay(p).includes(q));
@@ -315,7 +321,35 @@ const clinicStartOriginal=start;
 start=async function(){locked=false;try{await load();await stockReload();draw()}catch(e){A.innerHTML='<div class="card"><b>无法读取云端资料</b><p>'+esc(e.message)+'</p><button onclick="location.reload()">重新登录</button></div>'}};
 function injectStock(){if(S.v==='list'){const top=A.querySelector('.top');if(top&&!$el('stockNav'))top.insertAdjacentHTML('afterend','<button class="row" id="stockNav" type="button"><span><b>🌿 StockBase · 库存与月用量</b><small>云端共享 · 低库存 ≤ 400g</small></span><b>进入 ›</b></button>');$el('stockNav')?.addEventListener('click',stockDashboard);return}
 if(!S.id||!P.some(p=>p.id===S.id))return;const form=$el('vf');if(form&&!$el('stockRxEntry')){const btn=document.createElement('div');btn.id='stockRxEntry';btn.className='card noprint';btn.innerHTML='<h2 style="font-size:19px">🌿 复方开药（选填）</h2><p class="mut">先保存病例及治疗费用，随后可在该次就诊记录下选择开药。开药可选填；填写每味复方的克数，确认后按实际克数扣库存。</p><button type="button" id="stockOpenAfterSave">保存当前病例并开药</button>';form.after(btn);$el('stockOpenAfterSave').onclick=async()=>{let f=get(),fees=[...A.querySelectorAll('.frow')].map(r=>({n:r.querySelector('.fn').value.trim(),a:r.querySelector('.fa').value.trim()})).filter(r=>r.n||r.a),o=S.vid&&V.find(x=>x.id===S.vid),date=f.date||today(),fu=o?.fu&&o.date===date?o.fu:nextSlot(addDays(date,7),S.id);const visit={...(o||{id:uid(),ts:Date.now()}),...f,date,pid:S.id,ph:S.ph,fu,fees};try{await put('visits',visit);await load();go('patient',{id:S.id,vid:null,ph:[]});await openRx(visit.id)}catch(e){toast('保存失败：'+e.message,6000)}}}
-for(const z of vs(S.id)){const card=[...A.querySelectorAll('.v')].find(el=>el.querySelector('[data-act="editv"]')?.dataset.id===z.id);if(card&&!card.querySelector('.stock-rx')){const area=document.createElement('div');area.className='stock-rx';area.innerHTML=`<div class="acts noprint"><button type="button" data-cloudrx="${esc(z.id)}">🌿 为本次病例开药</button></div>${RX.filter(r=>r.visit_id===z.id).map(r=>`<p class="mut">${esc(r.name)} · ${r.total_g}g · ${r.cancelled_at?'已撤销':'已发药'} ${!r.cancelled_at?`<button type="button" data-cancelrx="${esc(r.id)}">撤销发药</button>`:''}</p>`).join('')}`;card.append(area)}}}
+for(const z of vs(S.id)){const card=[...A.querySelectorAll('.v')].find(el=>el.querySelector('[data-act="editv"]')?.dataset.id===z.id);if(card&&!card.querySelector('.stock-rx')){const area=document.createElement('div');area.className='stock-rx';area.innerHTML=`<div class="acts noprint"><button type="button" data-cloudrx="${esc(z.id)}">🌿 为本次病例开药</button>${RX.some(r=>r.visit_id===z.id&&!r.cancelled_at)?`<button type="button" data-formula-details="${esc(z.id)}">编辑复方明细</button>`:''}</div>${RX.filter(r=>r.visit_id===z.id).map(r=>`<p class="mut">${esc(r.name)} · ${r.total_g}g · ${r.cancelled_at?'已撤销':'已发药'} ${!r.cancelled_at?`<button type="button" data-cancelrx="${esc(r.id)}">撤销发药</button>`:''}</p>`).join('')}`;card.append(area)}}}
+function editFormulaDetails(visitId){
+ const visit=V.find(v=>v.id===visitId);
+ if(!visit)return alert('找不到病例');
+ const items=RX.filter(r=>r.visit_id===visitId&&!r.cancelled_at).flatMap(r=>(Array.isArray(r.items)?r.items:[]).map(it=>{
+  const id=String(it.id??it.herb_id??'');
+  return {key:String(r.id)+':'+id,name:HERBS.find(h=>h.id===id)?.name||it.name||id};
+ }));
+ if(!items.length)return alert('请先为这次病例开药');
+ const modal=wrapModal('编辑复方明细',`<p class="mut">只填写括号里的药材名称或备注；全部留空也可以。不改变开药克数和库存。</p>
+ <div id="formulaDetailFields"></div>
+ <button class="p" id="saveFormulaDetails" type="button" style="width:100%">保存复方明细</button>`);
+ const fields=modal.querySelector('#formulaDetailFields');
+ fields.innerHTML=items.map((it,i)=>`<label>${esc(it.name)}（括号内自行填写）<textarea data-formula-index="${i}" rows="2" placeholder="留空，不自动填写任何成分">${esc(visit.formula_details?.[it.key]||'')}</textarea></label>`).join('');
+ modal.querySelector('#saveFormulaDetails').onclick=async()=>{
+  const details={...(visit.formula_details||{})};
+  fields.querySelectorAll('[data-formula-index]').forEach(t=>{
+   const item=items[Number(t.dataset.formulaIndex)],v=t.value.trim();
+   if(v)details[item.key]=v;else delete details[item.key];
+  });
+  const b=modal.querySelector('#saveFormulaDetails');b.disabled=true;
+  try{await put('visits',{...visit,formula_details:details});await load();modal.remove();draw();toast('复方明细已保存，可再次编辑');}
+  catch(e){alert('保存失败：'+e.message);b.disabled=false}
+ };
+}
+A.addEventListener('click',e=>{
+ const b=e.target.closest('[data-formula-details]');
+ if(b){e.preventDefault();editFormulaDetails(b.dataset.formulaDetails)}
+});
 const clinicDraw=draw;
 draw=function(){clinicDraw();injectStock()};
 async function cloudDeletePatientOrVisitGuard(e){const a=e.target.closest('[data-act]');if(!a||!['delv','delp'].includes(a.dataset.act))return;const vids=a.dataset.act==='delv'?[a.dataset.id]:V.filter(v=>v.pid===S.id).map(v=>v.id);if(RX.some(r=>!r.cancelled_at&&vids.includes(r.visit_id))){e.preventDefault();e.stopImmediatePropagation();toast('请先撤销发药记录再删除病历',5000)}}

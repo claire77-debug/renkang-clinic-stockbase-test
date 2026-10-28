@@ -1,0 +1,62 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><title>3D 人体疼痛标记</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,"Microsoft Yahei",sans-serif;color:#25433a;background:#f5f7f3}header{padding:12px 14px;background:white;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #dce6df}h1{font-size:17px;margin:0}button,select,input{font:inherit}button{border:1px solid #cbdcd1;border-radius:10px;background:white;padding:10px 11px;color:#244b40}button.on,.primary{background:#266454;color:white;border-color:#266454}.toolbar{display:flex;gap:6px;overflow:auto;padding:9px;background:white;scrollbar-width:none}.toolbar button{white-space:nowrap;font-size:13px}.stage{position:relative;height:min(66vh,530px);min-height:320px;background:radial-gradient(#f7f9f7,#d5e3dc);overflow:hidden;touch-action:none}canvas{display:block;width:100%;height:100%}.hint{position:absolute;bottom:8px;left:10px;right:10px;text-align:center;background:#ffffffbd;border-radius:8px;font-size:12px;padding:7px;pointer-events:none}.status{position:absolute;top:10px;left:10px;background:#fffde9d9;padding:6px 10px;border-radius:10px;font-size:12px}.panel{padding:12px 14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}label{font-size:13px;display:grid;gap:5px}input,select,textarea{border:1px solid #c7d8cd;border-radius:9px;padding:10px;background:white;color:#234339;width:100%;font:inherit}.tags{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.tags button{font-size:12px;padding:7px 9px}.list{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.list button{font-size:12px;padding:7px 9px}.footer{padding:12px;display:flex;gap:9px;background:#fff;position:sticky;bottom:0;box-shadow:0 -2px 12px #0001}.footer button{flex:1}.muted{font-size:12px;color:#718479}.chosen{font-size:12px;margin-top:10px;padding:9px;border-radius:9px;background:#edf4ed}.error{padding:18px;color:#9a432d;text-align:center} </style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script></head><body>
+<header><h1>人体疼痛位置 · 3D</h1><button id="close">关闭</button></header>
+<div class="toolbar" id="modes"><button data-mode="rotate" class="on">↻ 旋转 / 缩放</button><button data-mode="point">● 点选</button><button data-mode="circle">◯ 画圈</button><button data-mode="draw">✎ 自由画笔</button><button id="undo">↶ 撤销</button></div>
+<div class="stage" id="stage"><div class="status" id="status">正在载入人体模型…</div><div class="hint" id="hint">单指旋转 · 双指缩放 · 切换标记工具后触摸人体</div></div>
+<div class="toolbar"><button id="front">正面</button><button id="left">左侧</button><button id="back">背面</button><button id="right">右侧</button><button id="reset">重设角度</button></div>
+<div class="panel">
+<div class="grid"><label>身体区域<select id="region"></select></label><label>左右<select id="side"><option>左侧</option><option>右侧</option><option>双侧</option><option selected>中央</option><option>不确定</option></select></label></div>
+<div id="parts" class="list"></div><label style="margin-top:12px">疼痛程度（0–10 分）<input type="range" id="severity" min="0" max="10" value="5"></label><div class="muted" id="sv">疼痛程度：5 / 10</div>
+<div class="tags" id="kinds"></div><label>描述（选填）<textarea rows="2" id="notes" placeholder="例如：右侧肩胛下缘酸痛，抬手时加重"></textarea></label>
+<div class="chosen" id="summary">尚未标记。</div><p class="muted">部位列表用于辅助记录；精确位置以人体上的标记为准。模型为外观示意，不用于解剖诊断。</p></div>
+<div class="footer"><button id="clear">清除</button><button class="primary" id="save">保存疼痛记录</button></div>
+<script type="module">
+import * as THREE from 'three';import {OrbitControls} from 'three/addons/controls/OrbitControls.js';import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+const $=id=>document.getElementById(id);
+const regions={
+'头部／脸部':'头顶,额头,太阳穴,后脑,头皮,眼眶,眼睛,眉骨,耳朵,耳后,鼻子,鼻窦,颧骨,脸颊,上下颌,牙齿,下巴,口腔',
+'颈部／咽喉':'前颈,后颈,左侧颈,右侧颈,颈椎,颈根部,喉咙,锁骨上窝',
+'肩／手臂':'肩峰,肩关节,锁骨,三角肌,腋下,上臂前侧,上臂后侧,上臂内侧,上臂外侧,肘内侧,肘外侧,肘窝,鹰嘴,前臂前侧,前臂后侧,手腕内侧,手腕外侧',
+'手部／手指':'手背,手掌,大鱼际,小鱼际,掌指关节,拇指,食指,中指,无名指,小指,指尖,指间关节',
+'胸部／肋骨':'胸骨,胸骨旁,左胸,右胸,乳房区域,胸大肌,肋骨前侧,侧胸,肋间,肋缘',
+'腹部':'上腹,胃脘,剑突下,肚脐,脐周,左上腹,右上腹,左下腹,右下腹,下腹中央,侧腹,腹股沟',
+'背部／脊椎':'后颈,上背,中背,下背,颈椎,胸椎,腰椎,肩胛上角,肩胛内缘,肩胛下角,左肩胛,右肩胛,脊柱旁,腰骶交界,骶骨,尾骨',
+'腰／臀／骨盆':'左腰,右腰,腰两侧,腰眼,髂嵴,骶髂关节,髋前侧,髋外侧,髋后侧,左臀,右臀,臀中部,坐骨,耻骨,会阴',
+'大腿':'大腿前侧,大腿后侧,大腿内侧,大腿外侧,股四头肌,股二头肌,内收肌,髂胫束',
+'膝盖':'髌骨,膝前侧,膝内侧,膝外侧,膝后侧,腘窝,髌腱,胫骨粗隆',
+'小腿／脚踝':'小腿前侧,小腿后侧,小腿内侧,小腿外侧,胫骨,腓骨,腓肠肌,比目鱼肌,跟腱,内踝,外踝',
+'脚部／脚趾':'足背,足底,足弓,足跟,前脚掌,跖骨,拇趾,第二脚趾,第三脚趾,第四脚趾,第五脚趾,趾关节',
+'其他／多处':'全身,多处游走,深层疼痛,位置不明,自定义'
+};
+Object.keys(regions).forEach(x=>{const o=document.createElement('option');o.textContent=x;$('region').append(o)});
+let data={marks:[],areas:[],severity:5,kinds:[],notes:''};let selectedRegion=Object.keys(regions)[0],mode='rotate',gesture=null,ready=false;
+function parts(){selectedRegion=$('region').value;$('parts').replaceChildren();regions[selectedRegion].split(',').forEach(p=>{const b=document.createElement('button');b.textContent=p;const value=$('side').value+' · '+p;b.classList.toggle('on',data.areas.includes(value));b.onclick=()=>{data.areas.includes(value)?data.areas=data.areas.filter(a=>a!==value):data.areas.push(value);parts();summary()};$('parts').append(b)})}
+$('region').onchange=parts;$('side').onchange=parts;
+['酸痛','刺痛','胀痛','钝痛','灼痛','麻木','牵拉痛','放射痛','跳痛','压痛'].forEach(t=>{const b=document.createElement('button');b.textContent=t;b.onclick=()=>{data.kinds.includes(t)?data.kinds=data.kinds.filter(x=>x!==t):data.kinds.push(t);b.classList.toggle('on',data.kinds.includes(t));summary()};$('kinds').append(b)});
+$('severity').oninput=()=>{data.severity=+$('severity').value;$('sv').textContent='疼痛程度：'+data.severity+' / 10';summary()};
+$('notes').oninput=()=>{data.notes=$('notes').value;summary()};
+function summary(){$('summary').textContent='已标记 '+data.marks.length+' 处 · 选定部位 '+data.areas.length+' 个'+(data.areas.length?'：'+data.areas.join('、'):'')+(data.kinds.length?' · '+data.kinds.join('、'):'')+' · '+data.severity+'/10'}
+const scene=new THREE.Scene();const stage=$('stage');const camera=new THREE.PerspectiveCamera(35,1,.01,100);camera.position.set(0,1.06,3.75);const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));stage.prepend(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x839c92,2.7));const lamp=new THREE.DirectionalLight(0xffffff,2.2);lamp.position.set(3,5,4);scene.add(lamp);const backlight=new THREE.DirectionalLight(0xffffff,1.3);backlight.position.set(-3,2,-4);scene.add(backlight);
+const root=new THREE.Group();scene.add(root);const controls=new OrbitControls(camera,renderer.domElement);controls.enablePan=false;controls.enableDamping=true;controls.target.set(0,.92,0);controls.minDistance=1;controls.maxDistance=7;controls.update();
+function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix()}new ResizeObserver(resize).observe(stage);resize();
+let bodyMeshes=[],annotations=new THREE.Group();root.add(annotations);const ray=new THREE.Raycaster(),pointer=new THREE.Vector2();
+function hit(e){const rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);const hits=ray.intersectObjects(bodyMeshes,true);return hits.find(h=>h.object.isMesh)||null}
+function marker(pt,kind='point'){const g=new THREE.Group();g.position.copy(pt);const mesh=new THREE.Mesh(new THREE.SphereGeometry(kind==='point'?.012:.008,10,10),new THREE.MeshBasicMaterial({color:0xe34538,depthTest:false}));g.add(mesh);annotations.add(g);return g}
+function addMark(points,type){if(!points.length)return;data.marks.push({type,points:points.map(p=>[p.x,p.y,p.z])});drawMarks();summary()}
+function drawMarks(){annotations.clear();for(const mark of data.marks){if(mark.type==='point'){marker(new THREE.Vector3(...mark.points[0]));continue}const arr=mark.points.map(p=>new THREE.Vector3(...p));if(mark.type==='circle'&&arr.length>1){const start=arr[0],end=arr[arr.length-1],centre=start.clone().add(end).multiplyScalar(.5),r=Math.max(.015,start.distanceTo(end)/2);const pts=[];for(let i=0;i<=48;i++){let a=i*Math.PI*2/48;pts.push(new THREE.Vector3(centre.x+Math.cos(a)*r,centre.y+Math.sin(a)*r,centre.z+.015))}const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0xe34538,depthTest:false}));annotations.add(line)}else if(arr.length>1){annotations.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(arr),new THREE.LineBasicMaterial({color:0xe34538,depthTest:false})))}else marker(arr[0]);}}
+function localHit(e){const h=hit(e);if(!h)return null;return root.worldToLocal(h.point.clone())}
+renderer.domElement.addEventListener('pointerdown',e=>{if(mode==='rotate'||!ready)return;const p=localHit(e);if(!p)return;gesture={id:e.pointerId,points:[p],x:e.clientX,y:e.clientY};renderer.domElement.setPointerCapture(e.pointerId);e.preventDefault()});
+renderer.domElement.addEventListener('pointermove',e=>{if(!gesture||gesture.id!==e.pointerId||mode==='rotate')return;const p=localHit(e);if(p&&mode==='draw'&&gesture.points.at(-1).distanceTo(p)>.008)gesture.points.push(p);if(p&&mode==='circle')gesture.points[1]=p});
+renderer.domElement.addEventListener('pointerup',e=>{if(!gesture||gesture.id!==e.pointerId)return;const pts=gesture.points;gesture=null;if(mode==='circle'&&pts.length<2){const p=pts[0];pts.push(p.clone().add(new THREE.Vector3(.06,.06,0)))}addMark(pts,mode)});
+function setMode(v){mode=v;document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('on',b.dataset.mode===v));controls.enabled=v==='rotate';$('hint').textContent=v==='rotate'?'单指旋转 · 双指缩放':v==='point'?'轻点人体留下疼痛点':v==='circle'?'在人体上从一端拖动到另一端画圈':'在人体上拖动画出疼痛路径'}
+document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));
+function angle(a){setMode('rotate');const dist=camera.position.distanceTo(controls.target);camera.position.set(Math.sin(a)*dist*.8,1.1,Math.cos(a)*dist*.8);controls.update()}$('front').onclick=()=>angle(0);$('back').onclick=()=>angle(Math.PI);$('left').onclick=()=>angle(-Math.PI/2);$('right').onclick=()=>angle(Math.PI/2);$('reset').onclick=()=>{camera.position.set(0,1.06,3.75);controls.update()};
+$('undo').onclick=()=>{data.marks.pop();drawMarks();summary()};$('clear').onclick=()=>{if(!confirm('清除这次所有疼痛标记？'))return;data={marks:[],areas:[],severity:5,kinds:[],notes:''};$('notes').value='';$('severity').value=5;parts();drawMarks();summary()};
+$('save').onclick=()=>{data.notes=$('notes').value;parent.postMessage({type:'renkang-pain-save',payload:JSON.stringify(data)},location.origin);if(window.parent===window){localStorage.setItem('renkang-pain-demo',JSON.stringify(data));alert('演示记录已保存到此浏览器。若从病历打开则会回填到病例表。')}};
+$('close').onclick=()=>{if(window.parent!==window)parent.postMessage({type:'renkang-pain-close'},location.origin);else history.back()};
+window.addEventListener('message',e=>{if(e.origin!==location.origin||e.data?.type!=='renkang-pain-init')return;try{const d=JSON.parse(e.data.payload);if(d&&Array.isArray(d.marks)&&Array.isArray(d.areas)){data=d;$('notes').value=d.notes||'';$('severity').value=d.severity||5;$('sv').textContent='疼痛程度：'+(d.severity||5)+'/10';parts();drawMarks();summary();}}catch{}});
+new GLTFLoader().load('https://raw.githubusercontent.com/kblood/CharacterCreator/main/output/base_body.glb',g=>{const object=g.scene;const box=new THREE.Box3().setFromObject(object),size=box.getSize(new THREE.Vector3()),centre=box.getCenter(new THREE.Vector3());if(!size.y||size.y<.01)throw Error('模型尺寸异常');object.position.sub(centre);object.scale.setScalar(1.8/size.y);root.add(object);bodyMeshes=[];object.traverse(x=>{if(x.isMesh){bodyMeshes.push(x);x.material=new THREE.MeshStandardMaterial({color:0xd1d9d4,roughness:.9,metalness:0,side:THREE.DoubleSide,skinning:x.isSkinnedMesh})}});root.position.y=.95;controls.target.set(0,.96,0);camera.position.set(0,1.13,3.7);controls.update();ready=true;$('status').textContent='3D 人体已载入';setTimeout(()=>$('status').style.display='none',2200);},undefined,e=>{$('status').textContent='模型未能载入，请检查网络后重新打开';$('hint').textContent='需要网络加载 3D 模型与组件，暂时仍可使用下方完整部位列表';});
+function frame(){requestAnimationFrame(frame);controls.update();renderer.render(scene,camera)}frame();parts();summary();
+</script></body></html>

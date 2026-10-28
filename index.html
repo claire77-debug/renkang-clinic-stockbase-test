@@ -67,6 +67,7 @@ const K=[['cc','主诉'],['wang','舌诊'],['pulse','脉象'],['appetite','食�
 const yr=p=>(p.birth||'').match(/\d{4}/)?.[0]||'';
 const go=(v,o={})=>{S={...S,v,...o};draw();scrollTo(0,0)};
 const get=()=>Object.fromEntries([...A.querySelectorAll('[name]')].map(e=>[e.name,e.value]));
+const cleanVisitFields=f=>{const out={...f};for(const [k] of K){if(typeof out[k]==='string'&&!out[k].trim())delete out[k];}return out};
 const F=(l,n,v='',ta,ex='')=>`<label>${l}${ta?`<textarea name="${n}" rows="3">${esc(v)}</textarea>`:`<input name="${n}" value="${esc(v)}" ${ex}>`}</label>`;
 const Sel=(l,n,o,v)=>`<label>${l}<select name="${n}">${o.map(x=>`<option${x==v?' selected':''}>${x}</option>`).join('')}</select></label>`;
 const vs=pid=>V.filter(v=>v.pid===pid).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
@@ -165,7 +166,7 @@ const incHTML=()=>{const d=S.d||today(),m=d.slice(0,7),rows=V.filter(v=>v.date==
 let importData=async t=>{try{const j=JSON.parse(t);for(const p of j.patients||[])await put('patients',p);for(const v of j.visits||[])await put('visits',v);await load();draw();toast('已导入 '+(j.patients||[]).length+' 位病人')}catch(x){toast('备份内容无法读取')}};
 const vformHTML=()=>{const x=S.vid&&V.find(z=>z.id==S.vid)||{};return `<div class="card noprint" id="vf"><h2 style="font-size:20px;margin-bottom:12px">病例表${S.vid?' <small class="mut">（编辑中）</small>':''}</h2>
  ${F('日期','date',x.date||today(),0,'type="date"')}${Sel('类型','type',['初诊','复诊','其他'],x.type||(vs(S.id).length?'复诊':'初诊'))}
- <label>添加项目（舌诊、主诉、备注等）<select id="addsec"></select></label><div id="secs">${K.filter(k=>k[0]=='fee'?1:x[k[0]]).map(k=>sec(k[0],k[0]=='fee'?x.fees:x[k[0]])).join('')}</div>
+ <p class="mut" style="font-size:13px;margin-bottom:12px">所有项目已列出，未填写的项目不会出现在病历中。</p><div id="secs">${K.filter(k=>k[0]!=='urine').map(k=>k[0]==='stool'?'<div class="sec" style="padding:12px"><div class="lb"><span>大便 / 小便</span></div>'+sec('stool',x.stool)+sec('urine',x.urine)+'</div>':sec(k[0],k[0]==='fee'?x.fees:x[k[0]])).join('')}</div>
  <label>照片（可拍照或选多张，数量不限）<input type="file" id="pf" accept="image/*" multiple></label><div class="ph" id="ph"></div>
  <div class="acts"><button class="p" data-act="savev">保存</button>${S.vid?'<button data-act="cancelv">取消编辑</button>':''}</div></div>`};
 function draw(){
@@ -197,7 +198,7 @@ const lastFee=n=>{if(!n)return '';for(const v of [...V].sort((a,b)=>b.date.local
 const feeNames=()=>[...new Set([...FEES,...V.flatMap(v=>(v.fees||[]).map(r=>r.n)).filter(Boolean)])];
 const tot=f=>String(+(f||[]).reduce((a,r)=>a+(parseFloat(r.a)||0),0).toFixed(2));
 const frow=(n='',a='')=>`<div class="frow"><input class="fn" list="fnl" placeholder="项目" value="${esc(n)}"><input class="fa" inputmode="decimal" placeholder="金额" value="${esc(a)}"><button type="button" data-act="feedel" aria-label="删除">×</button></div>`;
-const feeSec=(f=[])=>`<div class="sec" data-k="fee"><div class="lb"><span>治疗费用</span><button type="button" data-act="rmsec" data-k="fee">移除</button></div><div class="chips"><div><small>快速添加</small>${feeNames().map(t=>`<button type="button" class="chip" data-act="feeadd" data-n="${t}">${t}</button>`).join('')}<button type="button" class="chip" data-act="feeadd" data-n="">＋自订</button></div></div><datalist id="fnl">${feeNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist><div id="fl">${f.map(r=>frow(r.n,r.a)).join('')}</div><div class="feetot">合计：<b id="ft">${tot(f)}</b></div></div>`;
+const feeSec=(f=[])=>`<div class="sec" data-k="fee"><div class="lb"><span>治疗费用</span></div><div class="chips"><div><small>快速添加</small>${feeNames().map(t=>`<button type="button" class="chip" data-act="feeadd" data-n="${t}">${t}</button>`).join('')}<button type="button" class="chip" data-act="feeadd" data-n="">＋自订</button></div></div><datalist id="fnl">${feeNames().map(n=>`<option value="${esc(n)}">`).join('')}</datalist><div id="fl">${f.map(r=>frow(r.n,r.a)).join('')}</div><div class="feetot">合计：<b id="ft">${tot(f)}</b></div></div>`;
 const feeSync=()=>{const e=$('#ft');if(e)e.textContent=tot([...A.querySelectorAll('.fa')].map(i=>({a:i.value})))};
 const feeHTML=z=>(z.fees||[]).length?`<dl class="kv" style="margin-top:4px"><dt>治疗费用</dt><dd>${z.fees.map(r=>esc(r.n)+'　'+esc(r.a)).join('\n')}\n合计　${tot(z.fees)}</dd></dl>`:'';
 const CH={
@@ -211,8 +212,8 @@ urine:[['小便',['正常','频','急','量少','量多','色黄','色清','夜�
 sleep:[['睡眠',['正常','难入睡','易醒','早醒','多梦','失眠','嗜睡','睡不深']]],
 menses:[['周期',['规律','提前','推迟','先后不定','闭经','已绝经']],['经量',['正常','量多','量少','淋漓不尽']],['经色',['鲜红','淡红','暗红','紫暗','有血块']],['经质',['清稀','黏稠']],['伴随',['痛经','经前乳胀','经前烦躁','腰酸','白带多']]],
 bloat:[['腹胀',['无胀气','腹胀','胃脘胀','食后加重','嗳气','矢气多','肠鸣']]]};
-const sec=(k,v='')=>k=='fee'?feeSec(v||[]):`<div class="sec" data-k="${k}"><div class="lb"><span>${K.find(z=>z[0]==k)[1]}</span><button type="button" data-act="rmsec" data-k="${k}">移除</button></div>${CH[k]?`<div class="chips">${CH[k].map(g=>`<div><small>${g[0]}</small>${g[1].map(t=>`<button type="button" class="chip" data-act="chip" data-k="${k}" data-t="${t}">${t}</button>`).join('')}</div>`).join('')}</div>`:''}<textarea name="${k}" rows="3">${esc(v)}</textarea></div>`;
-const rebuild=()=>{$('#addsec').innerHTML='<option value="">＋ 选择要填写的项目</option>'+K.filter(k=>!A.querySelector('.sec[data-k="'+k[0]+'"]')).map(k=>`<option value="${k[0]}">${k[1]}</option>`).join('')};
+const sec=(k,v='')=>k=='fee'?feeSec(v||[]):`<div class="sec" data-k="${k}"><div class="lb"><span>${K.find(z=>z[0]==k)[1]}</span></div>${CH[k]?`<div class="chips">${CH[k].map(g=>`<div><small>${g[0]}</small>${g[1].map(t=>`<button type="button" class="chip" data-act="chip" data-k="${k}" data-t="${t}">${t}</button>`).join('')}</div>`).join('')}</div>`:''}<textarea name="${k}" rows="3">${esc(v)}</textarea></div>`;
+const rebuild=()=>{};
 const parts=k=>($('[name="'+k+'"]')?.value||'').split(/[，,、\s]+/).filter(Boolean);
 const chipSync=()=>A.querySelectorAll('.sec').forEach(x=>{const p=parts(x.dataset.k);x.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',p.includes(c.dataset.t)))});
 const shrink=f=>new Promise(res=>{const r=new FileReader;r.onload=()=>{const i=new Image;i.onload=()=>{const k=Math.min(1,1400/Math.max(i.width,i.height)),c=document.createElement('canvas');c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);res(c.toDataURL('image/jpeg',.72))};i.onerror=()=>res(null);i.src=r.result};r.onerror=()=>res(null);r.readAsDataURL(f)});
@@ -228,7 +229,7 @@ A.onclick=async e=>{const t=e.target.closest('[data-act]');if(!t)return;const a=
  else if(a=='cancelv')go('patient',{id:S.id,vid:null,ph:[]});
  else if(a=='editv'){const v=V.find(x=>x.id==d.id);go('patient',{id:v.pid,vid:v.id,ph:[...(v.ph||[])]});$('#vf').scrollIntoView()}
  else if(a=='savep'){const f=get();if(!f.name.trim())return toast('请填写姓名');const p={...(S.id?P.find(x=>x.id===S.id):{id:uid()}),...f,name:f.name.trim()};await put('patients',p);await load();go('patient',{id:p.id,vid:null,ph:[]})}
- else if(a=='savev'){const f=get(),fees=[...A.querySelectorAll('.frow')].map(r=>({n:r.querySelector('.fn').value.trim(),a:r.querySelector('.fa').value.trim()})).filter(r=>r.n||r.a),o=S.vid&&V.find(x=>x.id==S.vid),date=f.date||today(),fu=o&&o.fu&&o.date==date?o.fu:nextSlot(addDays(date,7),S.id);await put('visits',{...(o||{id:uid(),ts:Date.now()}),...f,date,pid:S.id,ph:S.ph,fu,fees});await load();go('patient',{id:S.id,vid:null,ph:[]});$('#hist').scrollIntoView();toast('已保存。复诊预约：'+fuTxt(fu),6000)}
+ else if(a=='savev'){const f=cleanVisitFields(get()),fees=[...A.querySelectorAll('.frow')].map(r=>({n:r.querySelector('.fn').value.trim(),a:r.querySelector('.fa').value.trim()})).filter(r=>r.n||r.a),o=S.vid&&V.find(x=>x.id==S.vid),date=f.date||today(),fu=o&&o.fu&&o.date==date?o.fu:nextSlot(addDays(date,7),S.id);await put('visits',{...(o||{id:uid(),ts:Date.now()}),...f,date,pid:S.id,ph:S.ph,fu,fees});await load();go('patient',{id:S.id,vid:null,ph:[]});$('#hist').scrollIntoView();toast('已保存。复诊预约：'+fuTxt(fu),6000)}
  else if(a=='delp'){if(!sure(t,'再点一次确认删除'))return;for(const v of vs(S.id))await del('visits',v.id);await del('patients',S.id);await load();go('list',{id:null})}
  else if(a=='delv'){if(!sure(t,'再点一次确认'))return;await del('visits',d.id);await load();draw()}
  else if(a=='rmph'){S.ph.splice(+d.i,1);phs()}

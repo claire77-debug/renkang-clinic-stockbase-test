@@ -168,7 +168,7 @@ const bowelUrineSec=(stool='',urine='')=>`<div class="sec" style="padding:12px">
 const vformHTML=()=>{const x=S.vid&&V.find(z=>z.id==S.vid)||{};return `<div class="card noprint" id="vf"><h2 style="font-size:20px;margin-bottom:12px">病例表${S.vid?' <small class="mut">（编辑中）</small>':''}</h2>
  ${F('日期','date',x.date||today(),0,'type="date"')}${Sel('类型','type',['初诊','复诊','其他'],x.type||(vs(S.id).length?'复诊':'初诊'))}
  <p class="mut" style="font-size:13px;margin-bottom:12px">所有项目已列出，未填写的项目不会出现在病历中。</p><div id="secs">${K.filter(k=>k[0]!=='urine').map(k=>k[0]==='stool'?bowelUrineSec(x.stool,x.urine):sec(k[0],k[0]==='fee'?x.fees:x[k[0]])).join('')}</div>
- <label>照片（可拍照或选多张，数量不限）<input type="file" id="pf" accept="image/*" multiple></label><div class="ph" id="ph"></div>
+ <div class="sec"><div class="lb"><span>人体疼痛位置 · 3D</span></div><p class="mut" style="font-size:13px;margin:4px 0 10px">可旋转人体、点击痛点、画圈或自由绘制；保存后随本次病历保留。</p><textarea name="painmap" id="painmapvalue" hidden>${esc(x.painmap||"")}</textarea><button type="button" class="p" data-act="painopen" id="painopen">打开 3D 人体标记</button><div id="painbrief" class="mut" style="margin-top:8px;font-size:13px">${x.painmap?"已有疼痛位置记录，可打开查看或修改":"尚未记录疼痛部位"}</div></div><label>照片（可拍照或选多张，数量不限）<input type="file" id="pf" accept="image/*" multiple></label><div class="ph" id="ph"></div>
  <div class="acts"><button class="p" data-act="savev">保存</button>${S.vid?'<button data-act="cancelv">取消编辑</button>':''}</div></div>`};
 function draw(){
  const p=P.find(x=>x.id===S.id);
@@ -221,6 +221,7 @@ const shrink=f=>new Promise(res=>{const r=new FileReader;r.onload=()=>{const i=n
 const sure=(t,l)=>{if(t.dataset.s)return true;t.dataset.s=1;const o=t.textContent;t.textContent=l;setTimeout(()=>{delete t.dataset.s;t.textContent=o},3000);return false};
 const zoom=src=>{const o=document.createElement('div');o.id='ov';o.innerHTML=`<img src="${src}" alt="大图">`;o.onclick=()=>o.remove();document.body.append(o)};
 
+window.addEventListener('message',e=>{if(e.origin!==location.origin||!e.data||!['renkang-pain-save','renkang-pain-close'].includes(e.data.type))return; if(e.data.type==='renkang-pain-save'){const input=$('#painmapvalue');if(input){input.value=e.data.payload;let n=0;try{const v=JSON.parse(e.data.payload);n=(v.marks||[]).length;$('#painbrief').textContent='已标记 '+n+' 处痛点/画圈；已选择 '+(v.areas||[]).length+' 个部位。请再保存病例表。'}catch{}}}document.getElementById('painlayer')?.remove()});
 A.onclick=async e=>{const t=e.target.closest('[data-act]');if(!t)return;const a=t.dataset.act,d=t.dataset;
  if(a=='new')go('pform',{id:null});
  else if(a=='open')go('patient',{id:d.id,vid:null,ph:[]});
@@ -230,6 +231,7 @@ A.onclick=async e=>{const t=e.target.closest('[data-act]');if(!t)return;const a=
  else if(a=='cancelv')go('patient',{id:S.id,vid:null,ph:[]});
  else if(a=='editv'){const v=V.find(x=>x.id==d.id);go('patient',{id:v.pid,vid:v.id,ph:[...(v.ph||[])]});$('#vf').scrollIntoView()}
  else if(a=='savep'){const f=get();if(!f.name.trim())return toast('请填写姓名');const p={...(S.id?P.find(x=>x.id===S.id):{id:uid()}),...f,name:f.name.trim()};await put('patients',p);await load();go('patient',{id:p.id,vid:null,ph:[]})}
+ else if(a=='painopen'){const o=document.createElement('div');o.id='painlayer';o.style.cssText='position:fixed;inset:0;z-index:99999;background:#fff';o.innerHTML='<iframe title="3D人体疼痛标记" src="pain-map.html" style="width:100%;height:100%;border:0" allow="fullscreen"></iframe>';document.body.append(o);o.querySelector('iframe').onload=()=>o.querySelector('iframe').contentWindow.postMessage({type:'renkang-pain-init',payload:$('#painmapvalue')?.value||''},location.origin)}
  else if(a=='savev'){const f=cleanVisitFields(get()),fees=[...A.querySelectorAll('.frow')].map(r=>({n:r.querySelector('.fn').value.trim(),a:r.querySelector('.fa').value.trim()})).filter(r=>r.n||r.a),o=S.vid&&V.find(x=>x.id==S.vid),date=f.date||today(),fu=o&&o.fu&&o.date==date?o.fu:nextSlot(addDays(date,7),S.id);await put('visits',{...(o||{id:uid(),ts:Date.now()}),...f,date,pid:S.id,ph:S.ph,fu,fees});await load();go('patient',{id:S.id,vid:null,ph:[]});$('#hist').scrollIntoView();toast('已保存。复诊预约：'+fuTxt(fu),6000)}
  else if(a=='delp'){if(!sure(t,'再点一次确认删除'))return;for(const v of vs(S.id))await del('visits',v.id);await del('patients',S.id);await load();go('list',{id:null})}
  else if(a=='delv'){if(!sure(t,'再点一次确认'))return;await del('visits',d.id);await load();draw()}

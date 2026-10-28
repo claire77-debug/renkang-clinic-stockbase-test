@@ -75,7 +75,8 @@ const hay=p=>[p.name,...PF.map(f=>p[f[0]]),yr(p),...V.filter(v=>v.pid===p.id).fl
 const cmp=(a,b)=>a.name.localeCompare(b.name,'zh-u-co-pinyin');
 
 const dayTxt=d=>{const t=new Date(d+'T00:00');return t.getFullYear()+'年'+(t.getMonth()+1)+'月'+t.getDate()+'日 星期'+'日一二三四五六'[t.getDay()]};
-const visitRows=z=>K.filter(k=>z[k[0]]).map(k=>`<dt>${k[1]}</dt><dd>${esc(z[k[0]])}</dd>`).join('')+((z.fees||[]).length?`<dt>本次治疗</dt><dd>${z.fees.map(r=>esc(r.n)).filter(Boolean).join('、')}</dd><dt>本次治疗费用</dt><dd>${z.fees.map(r=>esc(r.n)+'　'+esc(r.a)).join('\n')}\n合计　${tot(z.fees)}</dd>`:'')+rxDetailsForVisit(z)+(z.fu?`<dt class="fu">复诊预约</dt><dd class="fu">${fuTxt(z.fu)}</dd>`:'');
+const painSummary=z=>{if(!z.painmap)return '';try{const p=JSON.parse(z.painmap),areas=Array.isArray(p.areas)?p.areas:[],marks=Array.isArray(p.marks)?p.marks:[];return '<dt>3D 疼痛位置</dt><dd>'+(areas.length?esc(areas.join('、'))+'；':'')+'图上标记 '+marks.length+' 处'+(p.severity!=null?'；疼痛程度 '+esc(String(p.severity))+'/10':'')+(Array.isArray(p.kinds)&&p.kinds.length?'；'+esc(p.kinds.join('、')):'')+(p.notes?'；'+esc(p.notes):'')+'</dd>'}catch{return ''}};
+const visitRows=z=>K.filter(k=>z[k[0]]).map(k=>`<dt>${k[1]}</dt><dd>${esc(z[k[0]])}</dd>`).join('')+((z.fees||[]).length?`<dt>本次治疗</dt><dd>${z.fees.map(r=>esc(r.n)).filter(Boolean).join('、')}</dd><dt>本次治疗费用</dt><dd>${z.fees.map(r=>esc(r.n)+'　'+esc(r.a)).join('\n')}\n合计　${tot(z.fees)}</dd>`:'')+rxDetailsForVisit(z)+painSummary(z)+(z.fu?`<dt class="fu">复诊预约</dt><dd class="fu">${fuTxt(z.fu)}</dd>`:'');
 function rxDetailsForVisit(z){
  if(typeof RX==='undefined')return '';
  const records=RX.filter(r=>r.visit_id===z.id&&!r.cancelled_at);

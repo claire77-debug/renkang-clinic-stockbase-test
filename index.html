@@ -67,7 +67,7 @@ const K=[['cc','主诉'],['wang','舌诊'],['pulse','脉象'],['appetite','食�
 const yr=p=>(p.birth||'').match(/\d{4}/)?.[0]||'';
 const go=(v,o={})=>{S={...S,v,...o};draw();scrollTo(0,0)};
 const get=()=>Object.fromEntries([...A.querySelectorAll('[name]')].map(e=>[e.name,e.value]));
-const cleanVisitFields=f=>{const out={...f};for(const [k] of K){if(typeof out[k]==='string'&&!out[k].trim())delete out[k];}return out};
+const cleanVisitFields=f=>{const out={...f};for(const [k] of K){if(typeof out[k]==='string')out[k]=out[k].trim();}return out};
 const F=(l,n,v='',ta,ex='')=>`<label>${l}${ta?`<textarea name="${n}" rows="3">${esc(v)}</textarea>`:`<input name="${n}" value="${esc(v)}" ${ex}>`}</label>`;
 const Sel=(l,n,o,v)=>`<label>${l}<select name="${n}">${o.map(x=>`<option${x==v?' selected':''}>${x}</option>`).join('')}</select></label>`;
 const vs=pid=>V.filter(v=>v.pid===pid).sort((a,b)=>b.date.localeCompare(a.date)||b.ts-a.ts);
